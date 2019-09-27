@@ -47,12 +47,15 @@ def is_correct(data, trial, dt=0.001):
     evidence_opt, choice_opt = get_evidence_opt(trial)
     for ncues in range(6):
         data_range = data[int(T*ncues/dt):int(T*(ncues+1)/dt)]
-        # if decision has been A or B for more than half of the time in this slot, model has decided
-        if len(np.where(data_range[:,0] > data_range[:,2])[0]) > len(data_range)/2:
+        # find which dimension of 'decision' has been the most dominant over the window
+        greatest = np.zeros((3))
+        for t in range(len(data_range)):
+            greatest[np.argmax(data_range[t])] += 1
+        if np.argmax(greatest) == 0:
             return choice_opt == 0
-        elif len(np.where(data_range[:,1] > data_range[:,2])[0]) > len(data_range)/2:
+        elif np.argmax(greatest) == 1:
             return choice_opt == 1
-    best_end_utility = 0 if data[-1, 0] > data[-1, 1] else 1
+    best_end_utility = 0 if data_range[-1,0] > data_range[-1,1] else 1
     return best_end_utility == choice_opt
 
 def get_ncues_opt(trial):
@@ -97,7 +100,7 @@ def run_model(trial, d_gain, t_train_start, t_train_end, k_train):
         value_inpt = nengo.Node(value_process)
         time_inpt = nengo.Node(constant_process)
         train_inpt = nengo.Node(train_func, size_in=1)
-        default_utility = nengo.Node(lambda t: 2 if t<6 else 0)
+        default_utility = nengo.Node(lambda t: 3 if t<6 else 0)
         weighted_value_node = nengo.Ensemble(1, 3, neuron_type=nengo.Direct())
         evidence_node = nengo.Ensemble(1, 2, neuron_type=nengo.Direct())
         
@@ -108,7 +111,7 @@ def run_model(trial, d_gain, t_train_start, t_train_end, k_train):
         multiply = nengo.Ensemble(4000, 3, radius=4, label="dlPFC")  # represents values dim=[0,1] and weight dim=[2]
         evidence = nengo.Ensemble(4000, 2, radius=4)  # 2D integrator accumulates weighted evidence
         utility = nengo.Ensemble(4000, 3, radius=4, label="SMA")  # inputs to BG
-        decision = nengo.networks.BasalGanglia(dimensions=3)  # WTA action selection between A, B, and more
+        decision = nengo.networks.BasalGanglia(n_neurons_per_ensemble=1000, dimensions=3)  # WTA action selection between A, B, and more
         error = nengo.Ensemble(1000, 1, label="ACC")  # 'dopaminergic' error population for RL
 
         # Connections
@@ -119,7 +122,7 @@ def run_model(trial, d_gain, t_train_start, t_train_end, k_train):
         delays = time_cells.add_output(t=[0, 1.0/5, 2.0/5, 3.0/5, 4.0/5, 1], function=lambda w: w)  
         # learn the relationship between time and gain modulation using PES learning from previous trial's outcome
         conn_modulate = nengo.Connection(time_cells.state.neurons, gain, synapse=0.1,
-            transform=d_gain.T, learning_rule_type=nengo.PES(learning_rate=1e-6))
+            transform=d_gain.T, learning_rule_type=nengo.PES(learning_rate=3e-6))
         nengo.Connection(gain, multiply[2], synapse=0.1)
         # accumulate evidence for choice A and B by feeding weighted values into a 2D integrator
         # function multiplies represented weights by input values
@@ -130,7 +133,7 @@ def run_model(trial, d_gain, t_train_start, t_train_end, k_train):
         nengo.Connection(evidence, utility[0:2], synapse=0.1)
         nengo.Connection(default_utility, utility[2])
         # action selection via basal ganglia
-        nengo.Connection(utility, decision.input)
+        nengo.Connection(utility, decision.input, synapse=0.1)
         # externally computed error for PES learning (error = actual - target)
         nengo.Connection(train_inpt, error, synapse=None)
         nengo.Connection(error, conn_modulate.learning_rule, synapse=0.1)
@@ -172,17 +175,22 @@ def run_model(trial, d_gain, t_train_start, t_train_end, k_train):
 
 
 ''' Experimental trials '''
-n_trials = 20
+n_trials = 3
 d_gain = np.zeros((2000, 1))
 t_train_start = 0
 t_train_end = 0
 k_train = 0
 rng = np.random.RandomState(seed=1)
+
 # table of rewards
 correct_early = 0
 correct_late = -1
-incorrect_early = 1
+incorrect_early = 0.5
 incorrect_late = 0
+
+corrects = []
+ncues_models = []
+ncues_opts = []
 
 for trial in range(n_trials):
     trial = rng.randint(40)
@@ -216,29 +224,35 @@ for trial in range(n_trials):
     # print("n cues empirical: ", [read_ncues_empirical(n, trial) for n in range(17)])
 
     # Plots
-    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=((12, 12)))
-    # ax1.plot(data['times'], data['evidence'][:,0], label='evidence A', color='r')
-    # ax1.plot(data['times'], data['evidence'][:,1], label='evidence B', color='b')
-    # ax1.plot(data['times'], data['multiply'][:,0], label='mul A')
-    # ax1.plot(data['times'], data['multiply'][:,1], label='mul B')
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, sharex=True, figsize=((12, 12)))
     ax1.plot(data['times'], data['utility'][:,0], label='utility A', color='r')
     ax1.plot(data['times'], data['utility'][:,1], label='utility B', color='b')
     ax1.plot(data['times'], data['evidence_node'][:,0], label='optimal A', color='r', linestyle="--")
     ax1.plot(data['times'], data['evidence_node'][:,1], label='optimal B', color='b', linestyle="--")
     ax1.plot(data['times'], data['utility'][:,2], label='utility more', color='k')
-    # ax3.plot(data['times'], data['time_cells'], label='time_cells')
-    # ax3.plot(data['times'], data['gain'], label='gain')
     ax2.plot(data['times'], data['error'], label='error')
     ax2.plot(data['times'], data['gain'], label='gain')
     ax2.axvline(x=ncues_model, alpha=0.5, label='ncues_model', color='r')
     ax2.axvline(x=ncues_opt, alpha=0.5, label='ncues_optimal', color='b')
-    ax1.set(xticks=([0, 1, 2, 3, 4, 5, 6]), ylim=((0, 2.5)), title='trial %s, correct=%s'%(trial, correct))  # ylim=((0, np.sum(weights))),
-    # ax3.set(xticks=([0, 1, 2, 3, 4, 5, 6]), ylim=((-0.2, 1.2)), xlabel='cues presented')
+    ax3.plot(data['times'], data['decision'][:,0], label='A')
+    ax3.plot(data['times'], data['decision'][:,1], label='B')
+    ax3.plot(data['times'], data['decision'][:,2], label='more')
+    ax1.set(xticks=([0, 1, 2, 3, 4, 5, 6]), ylim=((0, 3.5)), ylabel='utility', title='trial %s, correct=%s'%(trial, correct))  # ylim=((0, np.sum(weights))),
     ax2.set(xticks=([0, 1, 2, 3, 4, 5, 6]), ylim=((-0.1, 1.1)))
+    ax3.set(xticks=([0, 1, 2, 3, 4, 5, 6]), ylabel='BG values')
     ax1.legend(loc='upper left')
     ax2.legend(loc='upper left')
-    # ax3.legend(loc='upper left')
+    ax3.legend(loc='upper left')
     plt.savefig("plots/timeseries_%s.png"%trial)
 
     # update weights on learned connection for next trial
     d_gain = data['d_gain']
+    corrects.append(correct)
+    ncues_models.append(ncues_model)
+    ncues_opts.append(ncues_opt)
+
+np.savez("data.npz",
+    d_gain=d_gain,
+    corrects=np.array(corrects),
+    ncues_models=np.array(ncues_models),
+    ncues_opts=np.array(ncues_opts))

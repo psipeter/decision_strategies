@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import nengolib
+import hyperopt
+import scipy
 sns.set(style="white", context="talk")
 
 
@@ -38,8 +40,8 @@ def ncues(data, dt=0.001):
     for ncues in range(6):
         data_range = data[int(T*ncues/dt):int(T*(ncues+1)/dt)]
         # if decision has been A or B for more than half of the time in this slot, model has decided
-        if (len(np.where(data_range[:,2] > data_range[:,0])[0]) < len(data_range)/2 or
-                len(np.where(data_range[:,2] > data_range[:,1])[0]) < len(data_range)/2):
+        if (len(np.where(data_range[:,2] < data_range[:,0])[0]) > len(data_range)/2 or
+                len(np.where(data_range[:,2] < data_range[:,1])[0]) > len(data_range)/2):
             return ncues+1
     return 6
 
@@ -57,6 +59,14 @@ def is_correct(data, trial, dt=0.001):
             return choice_opt == 1
     best_end_utility = 0 if data_range[-1,0] > data_range[-1,1] else 1
     return best_end_utility == choice_opt
+
+def is_correct_empirical(choice_empirical, trial):
+    _, choice_correct = get_evidence_opt(trial)
+    if choice_empirical == 'A' and choice_correct == 0:
+        return True
+    if choice_empirical == 'B' and choice_correct == 1:
+        return True
+    return False
 
 def get_ncues_opt(trial):
     # the time at which the evidence that could accumulate for option 2 can no longer outweight the current evidence for option 1
@@ -80,7 +90,7 @@ def get_ncues_opt_greedy(trial):
 weights = np.array([0.706, 0.688, 0.667, 0.647, 0.625, 0.6]) # weights of cues (from experiment)
 T = 1.0  # time interval (s) for which the choices are presented
 
-def run_model(trial, d_gain, t_train_start, t_train_end, k_train):
+def run_model(trial, d_gain, t_train_start=0, t_train_end=0, k_train=0):
 
     values_A, values_B = read_values(trial)
     values = [[values_A[n], values_B[n]] for n in range(len(values_A))]
@@ -100,19 +110,19 @@ def run_model(trial, d_gain, t_train_start, t_train_end, k_train):
         value_inpt = nengo.Node(value_process)
         time_inpt = nengo.Node(constant_process)
         train_inpt = nengo.Node(train_func, size_in=1)
-        default_utility = nengo.Node(lambda t: 3 if t<6 else 0)
+        default_utility = nengo.Node(lambda t: 1 if t<6 else 0)
         weighted_value_node = nengo.Ensemble(1, 3, neuron_type=nengo.Direct())
         evidence_node = nengo.Ensemble(1, 2, neuron_type=nengo.Direct())
         
         # Ensembles
         time_cells = nengolib.networks.RollingWindow(theta=5.0, n_neurons=2000, dimensions=20,
             process=constant_process, neuron_type=nengo.LIF())  # LMU represents rolling window of input history
-        gain = nengo.Ensemble(1000, 1, label="LC")  # represents emotional modulation of weights
+        gain = nengo.Ensemble(1000, 1, radius=2, label="LC")  # represents emotional modulation of weights
         multiply = nengo.Ensemble(4000, 3, radius=4, label="dlPFC")  # represents values dim=[0,1] and weight dim=[2]
         evidence = nengo.Ensemble(4000, 2, radius=4)  # 2D integrator accumulates weighted evidence
-        utility = nengo.Ensemble(4000, 3, radius=4, label="SMA")  # inputs to BG
+        utility = nengo.Ensemble(4000, 3, radius=4, label="pre-SMA")  # inputs to BG
         decision = nengo.networks.BasalGanglia(n_neurons_per_ensemble=1000, dimensions=3)  # WTA action selection between A, B, and more
-        error = nengo.Ensemble(1000, 1, label="ACC")  # 'dopaminergic' error population for RL
+        error = nengo.Ensemble(1000, 1, radius=2, label="ACC")  # 'dopaminergic' error population for RL
 
         # Connections
         nengo.Connection(time_inpt, time_cells.input, synapse=None)
@@ -156,9 +166,9 @@ def run_model(trial, d_gain, t_train_start, t_train_end, k_train):
         p_evidence_node = nengo.Probe(evidence_node, synapse=0.1)
         p_weights = nengo.Probe(conn_modulate, 'weights', synapse=None)
 
-    sim = nengo.Simulator(model, seed=0)
+    sim = nengo.Simulator(model, seed=0, progress_bar=False)
     with sim:
-        sim.run(6)
+        sim.run(6, progress_bar=False)
 
     return dict(
         times=sim.trange(),
@@ -175,84 +185,252 @@ def run_model(trial, d_gain, t_train_start, t_train_end, k_train):
 
 
 ''' Experimental trials '''
-n_trials = 3
-d_gain = np.zeros((2000, 1))
-t_train_start = 0
-t_train_end = 0
-k_train = 0
-rng = np.random.RandomState(seed=1)
 
-# table of rewards
-correct_early = 0
-correct_late = -1
-incorrect_early = 0.5
-incorrect_late = 0
+def run_trials(
+    d_gain=np.zeros((2000, 1)),
+    participant=0,
+    n_trials_train=48,
+    n_trials_test=48,
+    correct_early=0,
+    correct_late=-1,
+    incorrect_early=0.5,
+    incorrect_late=0,
+    rng=np.random.RandomState(seed=0),
+    plot=False):
 
-corrects = []
-ncues_models = []
-ncues_opts = []
+    # Training
+    t_train_start = 0
+    t_train_end = 0
+    k_train = 0
+    trial_list = np.arange(48)
+    rng.shuffle(trial_list)
+    for trial in range(n_trials_train):
+        trial = trial_list[np.mod(trial, 48)]
+        print('training trial: ', trial)
+        data = run_model(trial, d_gain, t_train_start, t_train_end, k_train)
 
-for trial in range(n_trials):
-    trial = rng.randint(40)
-    print('trial: ', trial)
-    data = run_model(trial, d_gain, t_train_start, t_train_end, k_train)
+        # determine the timing and correctness of model behavior
+        ncues_model = ncues(data['decision'])
+        ncues_opt = get_ncues_opt(trial)
+        error = ncues_opt - ncues_model
+        correct = is_correct(data['decision'], trial)
+        early = error >= 0
+        if correct and early:
+            k_train = correct_early
+            t_train_start = ncues_model-1
+            t_train_end = ncues_model
+        if correct and not early:
+            k_train = correct_late
+            t_train_start = ncues_opt-1
+            t_train_end = ncues_opt
+        if not correct and early:
+            k_train = incorrect_early
+            t_train_start = ncues_model-1
+            t_train_end = ncues_model
+        if not correct and not early:
+            k_train = incorrect_late
+            t_train_start = ncues_opt-1
+            t_train_end = ncues_opt
+        if not correct and (ncues_model==6 or ncues_opt==6):
+            k_train = 0
+        # print("n cues empirical: ", [read_ncues_empirical(n, trial) for n in range(17)])
 
-    # determine the timing and correctness of model behavior
-    ncues_model = ncues(data['decision'])
-    ncues_opt = get_ncues_opt(trial)
-    error = ncues_opt - ncues_model
-    correct = is_correct(data['decision'], trial)
-    early = error >= 0
-    if correct and early:
-        k_train = correct_early
-        t_train_start = ncues_model-1
-        t_train_end = ncues_model
-    if correct and not early:
-        k_train = correct_late
-        t_train_start = ncues_opt-1
-        t_train_end = ncues_opt
-    if not correct and early:
-        k_train = incorrect_early
-        t_train_start = ncues_model-1
-        t_train_end = ncues_model
-    if not correct and not early:
-        k_train = incorrect_late
-        t_train_start = ncues_opt-1
-        t_train_end = ncues_opt
-    if not correct and (ncues_model==6 or ncues_opt==6):
-        k_train = 0
-    # print("n cues empirical: ", [read_ncues_empirical(n, trial) for n in range(17)])
+        if plot:
+            fig, (ax1, ax2, ax3) = plt.subplots(3, 1, sharex=True, figsize=((12, 12)))
+            ax1.plot(data['times'], data['utility'][:,0], label='utility A', color='r')
+            ax1.plot(data['times'], data['utility'][:,1], label='utility B', color='b')
+            ax1.plot(data['times'], data['evidence_node'][:,0], label='optimal A', color='r', linestyle="--")
+            ax1.plot(data['times'], data['evidence_node'][:,1], label='optimal B', color='b', linestyle="--")
+            ax1.plot(data['times'], data['utility'][:,2], label='utility more', color='k')
+            ax2.plot(data['times'], data['error'], label='error')
+            ax2.plot(data['times'], data['gain'], label='gain')
+            ax2.axvline(x=ncues_model, alpha=0.5, label='ncues_model', color='r')
+            ax2.axvline(x=ncues_opt, alpha=0.5, label='ncues_optimal', color='b')
+            ax3.plot(data['times'], data['decision'][:,0], label='A')
+            ax3.plot(data['times'], data['decision'][:,1], label='B')
+            ax3.plot(data['times'], data['decision'][:,2], label='more')
+            ax1.set(xticks=([0, 1, 2, 3, 4, 5, 6]), ylim=((0, 3.5)), ylabel='utility', title='trial %s, correct=%s'%(trial, correct))  # ylim=((0, np.sum(weights))),
+            ax2.set(xticks=([0, 1, 2, 3, 4, 5, 6]), ylim=((-0.1, 2.0)))
+            ax3.set(xticks=([0, 1, 2, 3, 4, 5, 6]), ylabel='BG values')
+            ax1.legend(loc='upper left')
+            ax2.legend(loc='upper left')
+            ax3.legend(loc='upper left')
+            plt.savefig("plots/timeseries_train_%s.png"%trial)
+            plt.close()
 
-    # Plots
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, sharex=True, figsize=((12, 12)))
-    ax1.plot(data['times'], data['utility'][:,0], label='utility A', color='r')
-    ax1.plot(data['times'], data['utility'][:,1], label='utility B', color='b')
-    ax1.plot(data['times'], data['evidence_node'][:,0], label='optimal A', color='r', linestyle="--")
-    ax1.plot(data['times'], data['evidence_node'][:,1], label='optimal B', color='b', linestyle="--")
-    ax1.plot(data['times'], data['utility'][:,2], label='utility more', color='k')
-    ax2.plot(data['times'], data['error'], label='error')
-    ax2.plot(data['times'], data['gain'], label='gain')
-    ax2.axvline(x=ncues_model, alpha=0.5, label='ncues_model', color='r')
-    ax2.axvline(x=ncues_opt, alpha=0.5, label='ncues_optimal', color='b')
-    ax3.plot(data['times'], data['decision'][:,0], label='A')
-    ax3.plot(data['times'], data['decision'][:,1], label='B')
-    ax3.plot(data['times'], data['decision'][:,2], label='more')
-    ax1.set(xticks=([0, 1, 2, 3, 4, 5, 6]), ylim=((0, 3.5)), ylabel='utility', title='trial %s, correct=%s'%(trial, correct))  # ylim=((0, np.sum(weights))),
-    ax2.set(xticks=([0, 1, 2, 3, 4, 5, 6]), ylim=((-0.1, 1.1)))
-    ax3.set(xticks=([0, 1, 2, 3, 4, 5, 6]), ylabel='BG values')
-    ax1.legend(loc='upper left')
-    ax2.legend(loc='upper left')
-    ax3.legend(loc='upper left')
-    plt.savefig("plots/timeseries_%s.png"%trial)
+        # update weights on learned connection for next trial
+        d_gain = data['d_gain']
+        np.savez("data.npz", d_gain=d_gain)
 
-    # update weights on learned connection for next trial
-    d_gain = data['d_gain']
-    corrects.append(correct)
-    ncues_models.append(ncues_model)
-    ncues_opts.append(ncues_opt)
+    # Testing
+    corrects_simulated = np.zeros((n_trials_test, 1))
+    corrects_empirical = np.zeros((n_trials_test, 1))
+    ncues_simulated = np.zeros((n_trials_test, 1))
+    ncues_empirical = np.zeros((n_trials_test, 1))
+    for trial in range(n_trials_test):
+        print('testing trial: ', trial)
+        data = run_model(trial, d_gain)
+        ncues_model = ncues(data['decision'])
+        ncues_opt = get_ncues_opt(trial)
 
-np.savez("data.npz",
-    d_gain=d_gain,
-    corrects=np.array(corrects),
-    ncues_models=np.array(ncues_models),
-    ncues_opts=np.array(ncues_opts))
+        if plot:
+            fig, (ax1, ax2, ax3) = plt.subplots(3, 1, sharex=True, figsize=((12, 12)))
+            ax1.plot(data['times'], data['utility'][:,0], label='utility A', color='r')
+            ax1.plot(data['times'], data['utility'][:,1], label='utility B', color='b')
+            ax1.plot(data['times'], data['evidence_node'][:,0], label='optimal A', color='r', linestyle="--")
+            ax1.plot(data['times'], data['evidence_node'][:,1], label='optimal B', color='b', linestyle="--")
+            ax1.plot(data['times'], data['utility'][:,2], label='utility more', color='k')
+            ax2.plot(data['times'], data['error'], label='error')
+            ax2.plot(data['times'], data['gain'], label='gain')
+            ax2.axvline(x=ncues_model, alpha=0.5, label='ncues_model', color='r')
+            ax2.axvline(x=ncues_opt, alpha=0.5, label='ncues_optimal', color='b')
+            ax3.plot(data['times'], data['decision'][:,0], label='A')
+            ax3.plot(data['times'], data['decision'][:,1], label='B')
+            ax3.plot(data['times'], data['decision'][:,2], label='more')
+            ax1.set(xticks=([0, 1, 2, 3, 4, 5, 6]), ylim=((0, 3.5)), ylabel='utility', title='trial %s, correct=%s'%(trial, correct))  # ylim=((0, np.sum(weights))),
+            ax2.set(xticks=([0, 1, 2, 3, 4, 5, 6]), ylim=((-0.1, 2.0)))
+            ax3.set(xticks=([0, 1, 2, 3, 4, 5, 6]), ylabel='BG values')
+            ax1.legend(loc='upper left')
+            ax2.legend(loc='upper left')
+            ax3.legend(loc='upper left')
+            plt.savefig("plots/timeseries_test_%s.png"%trial)
+            plt.close()
+
+        corrects_simulated[trial] = is_correct(data['decision'], trial)
+        ncues_simulated[trial] = ncues(data['decision'])
+        corrects_empirical[trial] = is_correct_empirical(read_choice(participant, trial), trial)
+        ncues_empirical[trial] = read_ncues_empirical(participant, trial)
+        print("n_cues model: ", ncues_simulated[trial])
+        print("n_cues empirical: ", ncues_empirical[trial])
+        print("correct model: ", corrects_simulated[trial])
+        print("correct empirical: ", corrects_empirical[trial])
+
+    np.savez("data.npz",
+        d_gain=d_gain,
+        corrects_simulated=corrects_simulated,
+        corrects_empirical=corrects_empirical,
+        ncues_simulated=ncues_simulated,
+        ncues_empirical=ncues_empirical,
+        correct_late=correct_late,
+        incorrect_early=incorrect_early)
+
+    mean_model = 100*np.mean(corrects_simulated)
+    mean_empirical = 100*np.mean(corrects_empirical)
+    loss = scipy.stats.entropy(ncues_simulated, ncues_empirical)
+    # if plot:
+    fig, ax = plt.subplots(figsize=((12, 12)))
+    sns.distplot(ncues_simulated, ax=ax, label='model, accuracy=%.1f%%'%mean_model, bins=[1,2,3,4,5,6], kde=False)
+    sns.distplot(ncues_empirical, ax=ax, label='empirical, accuracy=%.1f%%'%mean_empirical, bins=[1,2,3,4,5,6], kde=False)
+    ax.set(xlabel='number of requested cues before decision', ylabel='frequency', title="entropy=%.5f"%loss, xlim=((0, 6)))
+    plt.legend()
+    plt.savefig("plots/compare_participant%s.png"%participant)
+
+    return d_gain, loss
+
+
+def plot_participant_data():
+    columns = ('trial', 'participant', 'correct', 'n_cues')
+    df = pd.DataFrame(columns=columns)
+    mean_ncues = np.zeros((14))
+    mean_corrects = np.zeros((14))
+    n_partitipants =  14
+    n_trials_test = 48
+    for participant in range(n_partitipants):
+        corrects_participant = []
+        n_cues_participant = []
+        for trial in range(n_trials_test):
+            correct = is_correct_empirical(read_choice(participant, trial), trial)
+            n_cues = read_ncues_empirical(participant, trial)
+            corrects_participant.append(correct)
+            n_cues_participant.append(n_cues)
+            df = df.append(pd.DataFrame([[participant, trial, correct, n_cues]], columns=columns), ignore_index=True)
+        mean_ncues[participant] = np.mean(n_cues_participant)
+        mean_corrects[participant] = np.mean(corrects_participant)
+
+        fig, ax = plt.subplots(figsize=((12, 12)))
+        sns.distplot(n_cues_participant, ax=ax, bins=[1,2,3,4,5,6], kde=False, # rwidth=1, align='center',
+            label='empirical, accuracy=%.2f%%'%np.mean(corrects_participant))
+        ax.set(xlabel='number of requested cues before decision', ylabel='frequency', xlim=((0, 6)))
+        plt.legend()
+        plt.savefig("plots/participant%s.png"%participant)
+
+    fig, ax = plt.subplots(figsize=((12, 12)))
+    sns.barplot('correct', 'n_cues', data=df)
+    plt.savefig("plots/accuracy_vs_ncues_all.png")
+
+    fig, ax = plt.subplots(figsize=((12, 12)))
+    sns.scatterplot(mean_ncues, mean_corrects)
+    ax.set(xlabel='number of requested cues before decision', ylabel='accuracy', xlim=((0, 6)))
+    plt.savefig("plots/accuracy_vs_ncues_participants.png")
+
+
+def optimize_learning(max_evals=10, participant=0, n_trials_train=1, n_trials_test=1, seed=0):
+    hyperparams = {}
+    hyperparams['participant'] = participant
+    hyperparams['n_trials_train'] = n_trials_train
+    hyperparams['n_trials_test'] = n_trials_test
+    hyperparams['correct_early'] = 0  # hp.uniform('correct_early', 0, 0)
+    hyperparams['correct_late'] = hyperopt.hp.uniform('correct_late', 0, -1)
+    hyperparams['incorrect_early'] = hyperopt.hp.uniform('incorrect_early', 1, 0)
+    hyperparams['incorrect_late'] = 0  # hp.uniform('incorrect_late', 0, 0)
+    hyperparams['seed'] = seed
+
+    def objective(hyperparams):
+
+        participant = hyperparams['participant']
+        n_trials_train = hyperparams['n_trials_train']
+        n_trials_test = hyperparams['n_trials_test']
+        correct_early = hyperparams['correct_early']
+        correct_late = hyperparams['correct_late']
+        incorrect_early = hyperparams['incorrect_early']
+        incorrect_late = hyperparams['incorrect_late']
+        rng = np.random.RandomState(seed=hyperparams['seed'])
+
+        d_gain, loss = run_trials(
+            participant=participant,
+            n_trials_train=n_trials_train,
+            n_trials_test=n_trials_test,
+            correct_early=correct_early,
+            correct_late=correct_late,
+            incorrect_early=incorrect_early,
+            incorrect_late=incorrect_late,
+            rng=rng)
+
+        return {
+            'loss': loss,
+            'd_gain': d_gain,
+            'correct_early': correct_early,
+            'correct_late': correct_late,
+            'incorrect_early': incorrect_early,
+            'incorrect_late': incorrect_late,
+            'status': hyperopt.STATUS_OK }
+
+    trials = hyperopt.Trials()
+    hyperopt.fmin(objective,
+        rstate=np.random.RandomState(seed=seed),
+        space=hyperparams,
+        algo=hyperopt.tpe.suggest,
+        max_evals=max_evals,
+        trials=trials)
+    best_idx = np.argmin(trials.losses())
+    best = trials.trials[best_idx]
+    best_loss = best['result']['loss']
+    best_d_gain = best['result']['d_gain']
+    best_correct_late = best['result']['correct_late']
+    best_incorrect_early = best['result']['incorrect_early']
+    np.savez("best.npz", loss=best_loss, d_gain=best_d_gain, correct_late=best_correct_late, incorrect_early=best_incorrect_early)
+
+    return best_d_gain, best_correct_late, best_incorrect_early, best_loss
+
+
+# plot_participant_data()
+
+# run_trials(participant=0, plot=True, n_trials_train=50, incorrect_early=0.1, correct_late=-2.0)
+
+run_trials(participant=11, plot=True, incorrect_early=1.0, correct_late=-0.3)
+
+# run_trials(participant=11, n_trials_train=0, d_gain=np.load("data.npz")['d_gain'], plot=True)
+
+# optimize_learning(max_evals=10, participant=0, n_trials_train=10, n_trials_test=10, seed=0)
+
+

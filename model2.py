@@ -405,5 +405,5 @@ def plot_participant_data():
 
 # plot_participant_data()
 
-run_trials(participant=0, plot=True, strategy=0)
-# run_trials(participant=11, plot=True, strategy=1)
+run_trials(participant=0, plot=True, strategy=0.55)
+run_trials(participant=11, plot=True, strategy=0.95)

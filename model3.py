@@ -82,14 +82,6 @@ def get_ncues_oracle(trial):
         if evidence_opt[n][choice_opt] > evidence_opt[-1][choice_opt-1]:
             return n+1
 
-# def get_ncues_greedy(trial):
-#     # the first time at which the evidence accumulated for the winning option outweights the evidence accumulated for the non-winner
-#     # (given the actual cue values on this trial)
-#     evidence_opt, choice_opt = get_evidence_opt(trial)
-#     for n in range(6):
-#         if evidence_opt[n][choice_opt] > evidence_opt[n][choice_opt-1]:
-#             return n+1
-
 def get_ncues_greedy(trial):
     # the first time at which the evidence accumulated for one option outweights the evidence accumulated for the other option
     evidence_opt, choice_opt = get_evidence_opt(trial)
@@ -207,23 +199,18 @@ def run_trials(
         ncues_model = ncues(data['decision'])
         ncues_opt = get_ncues_opt(trial)
         ncues_greedy = get_ncues_greedy(trial)
-        ncues_target = (strategy*ncues_opt + (1-strategy)*ncues_greedy)
         correct = is_correct(data['decision'], trial)
         print('correct:', correct==1)
         print('ncues_model:', ncues_model)
         print('ncues_opt', ncues_opt)
         print('ncues_greedy', ncues_greedy)
-        print('ncues_target', ncues_target)
         if plot:
-            make_plot(data, trial, ncues_model, ncues_opt, ncues_greedy, ncues_target, correct, gain, threshold, 'train', participant)
+            make_plot(data, trial, ncues_model, ncues_opt, ncues_greedy, correct, gain, threshold, 'train', participant)
         # update gain and threshold for next trial
-        delta = np.abs(ncues_target - ncues_model)/6
-        if correct and ncues_model > ncues_target:  # correct and late
-            gain += delta_gain * (1-strategy) * delta
-            threshold -= delta_threshold * (1-strategy) * delta
-        if not correct and ncues_model < ncues_target:  # incorrect and early
-            gain -= delta_gain * strategy * delta
-            threshold += delta_threshold * strategy * delta
+        reward_accuracy = -(not correct) * strategy  # -1 if incorrect, 0 if correct, scaled by strategy
+        reward_speed = - (ncues_model-1) * (1-strategy) / 5  # -1 if chose at ncues=6, 0 if chose at ncues=1, scaled by inverse strategy
+        gain += delta_gain * -reward_speed
+        threshold += delta_threshold * (reward_speed - reward_accuracy)
         np.savez("data_train.npz", gain=gain, threshold=threshold, strategy=strategy, participant=participant,
             delta_gain=delta_gain, delta_threshold=delta_threshold)
 
@@ -240,7 +227,6 @@ def run_trials(
         ncues_model = ncues(data['decision'])
         ncues_opt = get_ncues_opt(trial)
         ncues_greedy = get_ncues_greedy(trial)
-        ncues_target = (strategy*ncues_opt + (1-strategy)*ncues_greedy)
         correct = is_correct(data['decision'], trial)
         corrects_simulated[trial] = is_correct(data['decision'], trial)
         ncues_simulated[trial] = ncues(data['decision'])
@@ -251,7 +237,7 @@ def run_trials(
         print("correct model: ", corrects_simulated[trial])
         print("correct empirical: ", corrects_empirical[trial])
         if plot:
-            make_plot(data, trial, ncues_model, ncues_opt, ncues_greedy, ncues_target, correct, gain, threshold, 'test', participant)
+            make_plot(data, trial, ncues_model, ncues_opt, ncues_greedy, correct, gain, threshold, 'test', participant)
 
     np.savez("data_test.npz", gain=gain, threshold=threshold, strategy=strategy, participant=participant,
         delta_gain=delta_gain, delta_threshold=delta_threshold, corrects_simulated=corrects_simulated, ncues_simulated=ncues_simulated, corrects_empirical=corrects_empirical, ncues_empirical=ncues_empirical)
@@ -281,7 +267,6 @@ def run_trials(
             ncues_model = ncues(data['decision'])
             ncues_opt = get_ncues_opt(trial)
             ncues_greedy = get_ncues_greedy(trial)
-            ncues_target = (strategy*ncues_opt + (1-strategy)*ncues_greedy)
             correct = is_correct(data['decision'], trial)
             corrects_simulated[trial] = is_correct(data['decision'], trial)
             ncues_simulated[trial] = ncues(data['decision'])
@@ -292,7 +277,7 @@ def run_trials(
             print("correct model: ", corrects_simulated[trial])
             print("correct empirical: ", corrects_empirical[trial])
             if plot:
-                make_plot(data, trial, ncues_model, ncues_opt, ncues_greedy, ncues_target, correct, gain+bias, threshold, 'test_bias', participant)
+                make_plot(data, trial, ncues_model, ncues_opt, ncues_greedy, correct, gain+bias, threshold, 'test_bias', participant)
 
         np.savez("data_test_bias.npz", gain=gain, threshold=threshold, strategy=strategy, participant=participant, delta_gain=delta_gain, delta_threshold=delta_threshold, corrects_simulated=corrects_simulated, ncues_simulated=ncues_simulated, corrects_empirical=corrects_empirical, ncues_empirical=ncues_empirical, bias=bias)
 
@@ -310,7 +295,7 @@ def run_trials(
 
     return gain, threshold
 
-def make_plot(data, trial, ncues_model, ncues_opt, ncues_greedy, ncues_target, correct, gain, threshold, phase, participant):
+def make_plot(data, trial, ncues_model, ncues_opt, ncues_greedy, correct, gain, threshold, phase, participant):
     fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=((12, 12)))
     ax1.plot(data['times'], data['evidence'][:,0], label='evidence A', color='r')
     ax1.plot(data['times'], data['evidence'][:,1], label='evidence B', color='b')
@@ -325,7 +310,6 @@ def make_plot(data, trial, ncues_model, ncues_opt, ncues_greedy, ncues_target, c
     ax2.axvline(x=ncues_model, alpha=0.5, label='ncues_model', color='r')
     ax2.axvline(x=ncues_opt, alpha=0.5, label='ncues_opt', color='b')
     ax2.axvline(x=ncues_greedy, alpha=0.5, label='ncues_greedy', color='m')
-    ax2.axvline(x=ncues_target, alpha=0.5, label='ncues_target', color='k')
     ax1.set(xticks=([0, 1, 2, 3, 4, 5, 6]), ylim=((-1, 3)), ylabel='value',
         title='trial %s, gain=%.3f, threshold(target)=%.3f, correct=%s'%(trial, gain, threshold, correct))
     ax2.set(xticks=([0, 1, 2, 3, 4, 5, 6]), ylabel='BG values')
@@ -436,5 +420,5 @@ def plot_participant_data():
 
 # plot_participant_data()
 
-# run_trials(participant=0, plot=True, strategy=0.0)
-# run_trials(participant=11, plot=True, strategy=1.0)
+run_trials(participant=0, plot=True, strategy=0.25)
+# run_trials(participant=11, plot=True, n_trials_train=5, n_trials_test=2, strategy=1.0)

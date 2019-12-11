@@ -106,17 +106,17 @@ def run_model(trial, gain_in, threshold_in, seed=0):
         # Inputs
         validity_inpt = nengo.Node(validity_process)
         value_inpt = nengo.Node(value_process)
-        gain_inpt = nengo.Node(gain_in)
+        gain_inpt = nengo.Node(lambda t: t*gain_in)
         threshold_inpt = nengo.Node(lambda t: t > 5.5)
         validity_node = nengo.Ensemble(1, 3, neuron_type=nengo.Direct())
         evidence_node = nengo.Ensemble(1, 2, neuron_type=nengo.Direct())
         
         # Ensembles
-        gain = nengo.Ensemble(200, 1)  # represents emotional modulation of validities
-        threshold = nengo.Ensemble(400, 1, radius=2, encoders=nengo.dists.Choice([[-1]]), intercepts=nengo.dists.Choice([-threshold_in]))  # gates inputs to BG   
+        gain = nengo.Ensemble(250, 1)  # represents emotional modulation of validities
+        threshold = nengo.Ensemble(500, 1, radius=2, encoders=nengo.dists.Choice([[-1]]), intercepts=nengo.dists.Choice([-threshold_in]))  # gates inputs to BG   
         multiply = nengo.Ensemble(2000, 3, radius=4)  # represents values dim=[0,1] and validities dim=[2]
         evidence = nengo.Ensemble(2000, 2, radius=4)  # 2D integrator accumulates weighted evidence
-        gate = nengo.Ensemble(400, 2, radius=4)  # relays information from evidence to decision
+        gate = nengo.Ensemble(500, 2, radius=4)  # relays information from evidence to decision
         decision = nengo.networks.BasalGanglia(n_neurons_per_ensemble=200, dimensions=2)  # WTA action selection between A and B once threshold is reached
 
         # Connections
@@ -264,4 +264,12 @@ def plot_participant_data():
 
 # plot_participant_data()
 
-run_trials(gain=0.0, threshold=0.6, seed=0)
+run_trials(gain=0.1, threshold=0.5, seed=0)
+run_trials(gain=0.1, threshold=0.6, seed=0)
+run_trials(gain=0.1, threshold=0.7, seed=0)
+run_trials(gain=0.2, threshold=0.5, seed=0)
+run_trials(gain=0.2, threshold=0.6, seed=0)
+run_trials(gain=0.2, threshold=0.7, seed=0)
+run_trials(gain=0.3, threshold=0.5, seed=0)
+run_trials(gain=0.3, threshold=0.6, seed=0)
+run_trials(gain=0.3, threshold=0.7, seed=0)

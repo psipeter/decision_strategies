@@ -6,7 +6,7 @@ import pandas as pd
 import nengolib
 import hyperopt
 import scipy
-sns.set(style="white", context="talk")
+sns.set(style="white", context="poster")
 
 ''' Read empirical data from .csv files '''
 cues = pd.read_csv('how_many_cues.csv', sep=';')
@@ -112,12 +112,12 @@ def run_model(trial, gain_in, threshold_in, seed=0):
         evidence_node = nengo.Ensemble(1, 2, neuron_type=nengo.Direct())
         
         # Ensembles
-        gain = nengo.Ensemble(250, 1)  # represents emotional modulation of validities
-        threshold = nengo.Ensemble(500, 1, radius=2, encoders=nengo.dists.Choice([[-1]]), intercepts=nengo.dists.Choice([-threshold_in]))  # gates inputs to BG   
-        multiply = nengo.Ensemble(2000, 3, radius=4)  # represents values dim=[0,1] and validities dim=[2]
-        evidence = nengo.Ensemble(2000, 2, radius=4)  # 2D integrator accumulates weighted evidence
-        gate = nengo.Ensemble(500, 2, radius=4)  # relays information from evidence to decision
-        decision = nengo.networks.BasalGanglia(n_neurons_per_ensemble=200, dimensions=2)  # WTA action selection between A and B once threshold is reached
+        gain = nengo.Ensemble(1000, 1)  # represents emotional modulation of validities
+        threshold = nengo.Ensemble(1000, 1, encoders=nengo.dists.Choice([[-1]]), intercepts=nengo.dists.Choice([-threshold_in]))  # gates inputs to BG   
+        multiply = nengo.Ensemble(2000, 3, radius=3)  # represents values dim=[0,1] and validities dim=[2]
+        evidence = nengo.Ensemble(3000, 2, radius=4)  # 2D integrator accumulates weighted evidence
+        gate = nengo.Ensemble(3000, 2, radius=4)  # relays information from evidence to decision
+        decision = nengo.networks.BasalGanglia(n_neurons_per_ensemble=1000, dimensions=2)  # WTA action selection between A and B once threshold is reached
 
         # Connections
         nengo.Connection(gain_inpt, gain, synapse=None)
@@ -155,7 +155,7 @@ def run_model(trial, gain_in, threshold_in, seed=0):
         p_decision = nengo.Probe(decision.output, synapse=0.1)
         p_evidence_node = nengo.Probe(evidence_node, synapse=0.1)
 
-    sim = nengo.Simulator(model, seed=seed, progress_bar=False)
+    sim = nengo.Simulator(model, seed=seed, progress_bar=True)
     with sim:
         sim.run(6, progress_bar=True)
 
@@ -188,15 +188,15 @@ def run_trials(n_trials=48, gain=0, threshold=0.5, plot=True, seed=0):
         if plot:
             make_plot(data, trial, ncues_model, ncues_opt, ncues_greedy, correct, gain, threshold)
 
-    np.savez("plots4/data_gain%.3f_threshold%.3f.npz"%(gain, threshold), gain=gain, seed=seed, threshold=threshold, corrects_simulated=corrects_simulated, ncues_simulated=ncues_simulated)
+    np.savez("plots5/data_gain%.3f_threshold%.3f.npz"%(gain, threshold), gain=gain, seed=seed, threshold=threshold, corrects_simulated=corrects_simulated, ncues_simulated=ncues_simulated)
 
     mean_model = 100*np.mean(corrects_simulated)
     fig, ax = plt.subplots(figsize=((12, 12)))
     ax.hist(ncues_simulated, bins=np.array([1,2,3,4,5,6,7])-0.5, rwidth=1, label='accuracy=%.2f%%'%mean_model)
     # sns.distplot(ncues_simulated, ax=ax, label='model, accuracy=%.1f%%'%mean_model, bins=np.arange(7), kde=False)
-    ax.set(xlabel='average n_cues', ylabel='frequency', xticks=([1,2,3,4,5,6]), title="gain=%.1f, threshold=%.1f"%(gain, threshold))
+    ax.set(xlabel='average n_cues', ylabel='frequency', xticks=([1,2,3,4,5,6]), title="gain=%.2f, threshold=%.2f"%(gain, threshold))
     plt.legend()
-    plt.savefig("plots4/ncues_distribution_gain%.3f_threshold%.3f.png"%(gain, threshold))
+    plt.savefig("plots5/ncues_distribution_gain%.3f_threshold%.3f.png"%(gain, threshold))
 
 def make_plot(data, trial, ncues_model, ncues_opt, ncues_greedy, correct, gain, threshold):
     fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=((12, 12)))
@@ -218,7 +218,7 @@ def make_plot(data, trial, ncues_model, ncues_opt, ncues_greedy, correct, gain, 
     ax2.set(xticks=(np.arange(1, 7)), ylabel='BG values')
     ax1.legend(loc='upper left')
     ax2.legend(loc='upper left')
-    plt.savefig("plots4/timeseries_gain%.3f_threshold%.3f_trial%s.png"%(gain, threshold, trial))
+    plt.savefig("plots5/timeseries_gain%.3f_threshold%.3f_trial%s.png"%(gain, threshold, trial))
     plt.close()
 
 def plot_participant_data():
@@ -241,35 +241,29 @@ def plot_participant_data():
         mean_corrects[participant] = np.mean(corrects_participant)
 
         fig, ax = plt.subplots(figsize=((12, 12)))
-        ax.hist(n_cues_participant, bins=np.array([1,2,3,4,5,6,7])-0.5, rwidth=1, label='accuracy=%.2f%%'%(100*np.mean(corrects_participant)))
-        ax.set(xlabel='average n_cues', ylabel='frequency', xticks=([1,2,3,4,5,6]))
+        ax.hist(n_cues_participant, bins=np.array([1,2,3,4,5,6,7])-0.5, rwidth=1, density=True, label='accuracy=%.2f%%'%(100*np.mean(corrects_participant)))
+        ax.set(xlabel='mean n_cues', ylabel='frequency', xticks=([1,2,3,4,5,6]))
         plt.legend()
-        plt.savefig("plots4/empirical_participant%s.png"%participant)
+        plt.savefig("plots5/empirical_participant%s.png"%participant)
 
     fig, ax = plt.subplots(figsize=((12, 12)))
     sns.barplot('correct', 'n_cues', data=df)
-    plt.savefig("plots4/ncues_vs_correct_barplot.png")
+    plt.savefig("plots5/ncues_vs_correct_barplot.png")
 
     fig, ax = plt.subplots(figsize=((12, 12)))
     # sns.distplot(df['n_cues'], bins=np.arange(7), kde=False)
-    ax.hist(df['n_cues'], bins=np.array([1,2,3,4,5,6,7])-0.5, rwidth=1)
-    ax.set(xlabel='average n_cues', ylabel='frequency', xticks=([1,2,3,4,5,6]))
-    plt.savefig("plots4/ncues_distplot.png")
+    ax.hist(df['n_cues'], bins=np.array([1,2,3,4,5,6,7])-0.5, rwidth=1, density=True,)
+    ax.set(xlabel='mean n_cues', ylabel='frequency', xticks=([1,2,3,4,5,6]))
+    plt.savefig("plots5/ncues_distplot.png")
 
     fig, ax = plt.subplots(figsize=((12, 12)))
     sns.scatterplot(mean_ncues, mean_corrects)
-    ax.set(xlabel='average n_cues', ylabel='average accuracy', xlim=((1, 6)))
-    plt.savefig("plots4/accuracy_vs_ncues_scatter.png")
+    ax.set(xlabel='mean n_cues', ylabel='mean accuracy', xlim=((1, 6)))
+    plt.savefig("plots5/accuracy_vs_ncues_scatter.png")
 
 
 # plot_participant_data()
 
-run_trials(gain=0.1, threshold=0.5, seed=0)
-run_trials(gain=0.1, threshold=0.6, seed=0)
-run_trials(gain=0.1, threshold=0.7, seed=0)
-run_trials(gain=0.2, threshold=0.5, seed=0)
-run_trials(gain=0.2, threshold=0.6, seed=0)
-run_trials(gain=0.2, threshold=0.7, seed=0)
-run_trials(gain=0.3, threshold=0.5, seed=0)
-run_trials(gain=0.3, threshold=0.6, seed=0)
-run_trials(gain=0.3, threshold=0.7, seed=0)
+run_trials(gain=0.0, threshold=0.75)
+run_trials(gain=0.0, threshold=0.65)
+

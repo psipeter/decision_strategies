@@ -94,7 +94,7 @@ def get_ncues_greedy(trial):
 validities = np.array([0.706, 0.688, 0.667, 0.647, 0.625, 0.6]) # validity of cues (from experiment)
 T = 1.0  # time interval (s) for which the choices are presented
 
-def run_model(trial, thr_int, thr_decay, seed=0):
+def run_model(trial, thr_int, thr_decay, seed=0, noise=1e-2):
 
     values_A, values_B = read_values(trial)
     values = [[values_A[n], values_B[n]] for n in range(len(values_A))]
@@ -106,12 +106,13 @@ def run_model(trial, thr_int, thr_decay, seed=0):
         # Inputs
         validity_inpt = nengo.Node(validity_process)
         value_inpt = nengo.Node(value_process)
-        threshold_inpt = nengo.Node(lambda t: t*thr_decay)
+        threshold_inpt = nengo.Node(lambda t: t*thr_decay + 10*(t>5.5))
+        noise_inpt = nengo.Node(nengo.processes.WhiteSignal(period=6, high=10, rms=noise, seed=seed))
         validity_node = nengo.Ensemble(1, 3, neuron_type=nengo.Direct())
         evidence_node = nengo.Ensemble(1, 2, neuron_type=nengo.Direct())
         
         # Ensembles
-        threshold = nengo.Ensemble(1000, 1, encoders=nengo.dists.Choice([[-1]]), intercepts=thr_int)  # dynamic threshold gates inputs to BG   
+        threshold = nengo.Ensemble(1000, 1, encoders=nengo.dists.Choice([[-1]]), intercepts=nengo.dists.Choice([-thr_int]))  # dynamic threshold gates inputs to BG   
         multiply = nengo.Ensemble(2000, 3, radius=3)  # represents values dim=[0,1] and validities dim=[2]
         evidence = nengo.Ensemble(2000, 2, radius=4)  # 2D integrator accumulates weighted evidence
         gate = nengo.Ensemble(2000, 2, radius=4)  # relays information from evidence to decision
@@ -120,6 +121,7 @@ def run_model(trial, thr_int, thr_decay, seed=0):
         # Connections
         nengo.Connection(value_inpt, multiply[0:2], synapse=None)
         nengo.Connection(validity_inpt, multiply[2], synapse=None)
+        nengo.Connection(noise_inpt, multiply[2], synapse=None)  # noisy memory recall of validities
         # accumulate evidence for choice A and B by feeding weighted values into a 2D integrator
         # function multiplies input validies by input values
         nengo.Connection(multiply, evidence[0], synapse=0.1, function=lambda x: x[0]*x[2], transform=0.1)
@@ -164,10 +166,9 @@ def run_model(trial, thr_int, thr_decay, seed=0):
         )
 
 
-def run_trials(n_trials=48, thr_decay=0, thr_int_low=-0.5, thr_int_high=-0.5, plot=True, seed=0):
+def run_trials(n_trials=48, thr_decay=0, thr_int=0.8, plot=True, seed=0):
     corrects_simulated = np.zeros((n_trials, 1))
     ncues_simulated = np.zeros((n_trials, 1))
-    thr_int = nengo.dists.Uniform(thr_int_low, thr_int_high)
     for trial in range(n_trials):
         print('\ntrial: ', trial)
         data = run_model(trial, thr_int, thr_decay, seed)
@@ -182,17 +183,17 @@ def run_trials(n_trials=48, thr_decay=0, thr_int_low=-0.5, thr_int_high=-0.5, pl
         if plot:
             make_plot(data, trial, ncues_model, ncues_opt, ncues_greedy, correct, thr_decay, thr_int)
 
-    np.savez("plots5/data_thr_decay%.3f_thr_int%s.npz"%(thr_decay, thr_int),
-        thr_decay=thr_decay, seed=seed, thr_int_low=thr_int_low, thr_int_high=thr_int_high,
+    np.savez("plots5/data_thr_decay%.2f_thr_int%.2f.npz"%(thr_decay, thr_int),
+        thr_decay=thr_decay, seed=seed, thr_int=thr_int,
         corrects_simulated=corrects_simulated, ncues_simulated=ncues_simulated)
 
     mean_model = 100*np.mean(corrects_simulated)
     fig, ax = plt.subplots(figsize=((12, 12)))
-    ax.hist(ncues_simulated, bins=np.array([1,2,3,4,5,6,7])-0.5, rwidth=1, label='accuracy=%.2f%%'%mean_model)
+    ax.hist(ncues_simulated, bins=np.array([1,2,3,4,5,6,7])-0.5, rwidth=1, density=True, label='accuracy=%.2f%%'%mean_model)
     ax.set(xlabel='n_cues', ylabel='frequency', xticks=([1,2,3,4,5,6]),
-        title="thr_decay=%.2f, thr_int=%s"%(thr_decay, thr_int))
+        title="thr_decay=%.2f, thr_int=%.2f"%(thr_decay, thr_int))
     plt.legend()
-    plt.savefig("plots5/ncues_distribution_thr_decay=%.2f, thr_int=%s.png"%(thr_decay, thr_int))
+    plt.savefig("plots5/ncues_distribution_thr_decay%.2f, thr%.2f.png"%(thr_decay, thr_int))
 
 def make_plot(data, trial, ncues_model, ncues_opt, ncues_greedy, correct, thr_decay, thr_int):
     fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=((12, 12)))
@@ -209,11 +210,11 @@ def make_plot(data, trial, ncues_model, ncues_opt, ncues_greedy, correct, thr_de
     ax2.axvline(x=ncues_opt, alpha=0.5, label='ncues_opt', color='b')
     ax2.axvline(x=ncues_greedy, alpha=0.5, label='ncues_greedy', color='m')
     ax1.set(xticks=(np.arange(1, 7)), ylim=((-1, 3)), ylabel='value',
-        title='trial %s, correct=%s \n thr_decay=%.3f, thr_int=%s'%(trial, correct, thr_decay, thr_int))
+        title='trial %s, correct=%s \n thr_decay=%.2f, thr_int=%.2f'%(trial, correct, thr_decay, thr_int))
     ax2.set(xticks=(np.arange(1, 7)), ylabel='BG values')
     # ax1.legend(loc='upper left')
     # ax2.legend(loc='upper left')
-    plt.savefig("plots5/timeseries_thr_decay%.3f_thr_int%s_trial%s.png"%(thr_decay, thr_int, trial))
+    plt.savefig("plots5/timeseries_thr_decay%.2f_thr%.2f_trial%s.png"%(thr_decay, thr_int, trial))
     plt.close()
 
 def plot_participant_data():
@@ -236,14 +237,15 @@ def plot_participant_data():
         mean_corrects[participant] = np.mean(corrects_participant)
 
         fig, ax = plt.subplots(figsize=((12, 12)))
-        ax.hist(n_cues_participant, bins=np.array([1,2,3,4,5,6,7])-0.5, rwidth=1, density=True, label='accuracy=%.2f%%'%(100*np.mean(corrects_participant)))
+        ax.hist(n_cues_participant, bins=np.array([1,2,3,4,5,6,7])-0.5, rwidth=1, density=True, color='g', 
+            label='accuracy=%.2f%%'%(100*np.mean(corrects_participant)))
         ax.set(xlabel='n_cues', ylabel='frequency', xticks=([1,2,3,4,5,6]))
         plt.legend()
         plt.savefig("plots5/empirical_participant%s.png"%participant)
 
     fig, ax = plt.subplots(figsize=((12, 12)))
-    ax.hist(df['n_cues'], bins=np.array([1,2,3,4,5,6,7])-0.5, rwidth=1, density=True,)
-    ax.set(xlabel='n_cues', ylabel='frequency', title='all agents, all trials', xticks=([1,2,3,4,5,6]))
+    ax.hist(df['n_cues'], bins=np.array([1,2,3,4,5,6,7])-0.5, rwidth=1, density=True, color='g')
+    ax.set(xlabel='n_cues', ylabel='frequency', title='all participants, all trials', xticks=([1,2,3,4,5,6]))
     plt.savefig("plots5/ncues_distplot.png")
 
     fig, ax = plt.subplots(figsize=((12, 12)))
@@ -251,8 +253,15 @@ def plot_participant_data():
     ax.set(xlabel='mean n_cues', ylabel='mean accuracy', title='one point per agent', xlim=((1, 6)))
     plt.savefig("plots5/accuracy_vs_ncues_scatter.png")
 
+def plot_opt_data(n_trials=48):
+    n_cues_opt = [get_ncues_opt(trial) for trial in range(n_trials)]
+    fig, ax = plt.subplots(figsize=((12, 12)))
+    ax.hist(n_cues_opt, bins=np.array([1,2,3,4,5,6,7])-0.5, rwidth=1, density=True, color='r')
+    ax.set(xlabel='n_cues', ylabel='frequency', xticks=([1,2,3,4,5,6]), title='optimal (cannot be wrong given current evidence)')
+    plt.savefig("plots5/n_cues_opt_distplot.png")
 
 # plot_participant_data()
+# plot_opt_data()
 
-run_trials(n_trials=2, thr_decay=0.15, thr_int_low=-1, thr_int_high=-0.8, seed=1)
-
+run_trials(thr_decay=0.25, thr_int=1.5, seed=1)
+run_trials(thr_decay=0.25, thr_int=3.0, seed=1)

@@ -94,7 +94,7 @@ def get_ncues_greedy(trial):
 validities = np.array([0.706, 0.688, 0.667, 0.647, 0.625, 0.6]) # validity of cues (from experiment)
 T = 1.0  # time interval (s) for which the choices are presented
 
-def run_model(trial, thr_int, thr_decay, seed=0, noise=1e-2):
+def run_model(trial, thr_int, thr_decay, seed=0, noise=3e-2):
 
     values_A, values_B = read_values(trial)
     values = [[values_A[n], values_B[n]] for n in range(len(values_A))]
@@ -166,7 +166,7 @@ def run_model(trial, thr_int, thr_decay, seed=0, noise=1e-2):
         )
 
 
-def run_trials(n_trials=48, thr_decay=0, thr_int=0.8, plot=True, seed=0):
+def run_trials(n_trials=48, thr_decay=0, thr_int=0.8, plot=True, seed=0, p=0):
     corrects_simulated = np.zeros((n_trials, 1))
     ncues_simulated = np.zeros((n_trials, 1))
     for trial in range(n_trials):
@@ -186,6 +186,9 @@ def run_trials(n_trials=48, thr_decay=0, thr_int=0.8, plot=True, seed=0):
     np.savez("plots5/data_thr_decay%.2f_thr_int%.2f.npz"%(thr_decay, thr_int),
         thr_decay=thr_decay, seed=seed, thr_int=thr_int,
         corrects_simulated=corrects_simulated, ncues_simulated=ncues_simulated)
+    np.savez("data/%s"%p,
+        thr_decay=thr_decay, seed=seed, thr_int=thr_int,
+        corrects_simulated=corrects_simulated, ncues_simulated=ncues_simulated)    
 
     mean_model = 100*np.mean(corrects_simulated)
     fig, ax = plt.subplots(figsize=((12, 12)))
@@ -263,5 +266,7 @@ def plot_opt_data(n_trials=48):
 # plot_participant_data()
 # plot_opt_data()
 
-run_trials(thr_decay=0.25, thr_int=1.5, seed=1)
-run_trials(thr_decay=0.25, thr_int=3.0, seed=1)
+n_trials = 1
+rng = np.random.RandomState(seed=0)
+for n in range(n_trials):
+    run_trials(thr_decay=rng.uniform(0.3, 0.5), thr_int=rng.uniform(1.5, 3.0), seed=0, p=n)

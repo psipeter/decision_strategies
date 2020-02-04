@@ -5,6 +5,7 @@ import seaborn as sns
 import pandas as pd
 import nengolib
 import scipy
+# import tikzplotlib
 sns.set(style="white", context="poster")
 
 ''' Read empirical data from .csv files '''
@@ -175,43 +176,47 @@ def make_fig3():
     data_middle = run_model(trial=0, Tint=3.0, Tdecay=0.4, seed=0)
     data_bottom = run_model(trial=10, Tint=2.0, Tdecay=0.5, seed=0)
 
-    sns.set(style="white", context="poster")
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, sharex=True, figsize=((8, 12)))
-    ax1.plot(data_top['times'], data_top['evidence'][:,0], label=r"$E_A$", color='r')
-    ax1.plot(data_top['times'], data_top['evidence'][:,1], label=r"$E_B$", color='b')
-    ax1.plot(data_top['times'], data_top['threshold'], label='rIFC', color='k')
-    ax1.plot(data_top['times'], data_top['gate'][:,0], linestyle='-.', color='r')
-    ax1.plot(data_top['times'], data_top['gate'][:,1], linestyle='-.', color='b')
-    ax1.plot(data_top['times'], data_top['evidence_node'][:,0], color='r', linestyle="--")
-    ax1.plot(data_top['times'], data_top['evidence_node'][:,1], color='b', linestyle="--")
+    sns.set(style="white", context="talk")
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, sharex=True, figsize=((8, 16)))
+    ax1.plot(data_top['times'][::10], data_top['evidence'][::10,0], label=r"$E_A$", color='r')
+    ax1.plot(data_top['times'][::10], data_top['evidence'][::10,1], label=r"$E_B$", color='b')
+    ax1.plot(data_top['times'][::10], data_top['threshold'][::10], label='rIFC', color='k')
+    ax1.plot(data_top['times'][::10], data_top['gate'][::10,0], linestyle='-.', color='r')
+    ax1.plot(data_top['times'][::10], data_top['gate'][::10,1], linestyle='-.', color='b')
+    ax1.plot(data_top['times'][::10], data_top['evidence_node'][::10,0], color='r', linestyle="--")
+    ax1.plot(data_top['times'][::10], data_top['evidence_node'][::10,1], color='b', linestyle="--")
 
-    ax2.plot(data_middle['times'], data_middle['evidence'][:,0], color='r')
-    ax2.plot(data_middle['times'], data_middle['evidence'][:,1], color='b')
-    ax2.plot(data_middle['times'], data_middle['threshold'], color='k')
-    ax2.plot(data_middle['times'], data_middle['gate'][:,0], linestyle='-.', color='r')
-    ax2.plot(data_middle['times'], data_middle['gate'][:,1], linestyle='-.', color='b')
-    ax2.plot(data_middle['times'], data_middle['evidence_node'][:,0], color='r', linestyle="--")
-    ax2.plot(data_middle['times'], data_middle['evidence_node'][:,1], color='b', linestyle="--")
+    ax2.plot(data_middle['times'][::10], data_middle['evidence'][::10,0], color='r')
+    ax2.plot(data_middle['times'][::10], data_middle['evidence'][::10,1], color='b')
+    ax2.plot(data_middle['times'][::10], data_middle['threshold'][::10], color='k')
+    ax2.plot(data_middle['times'][::10], data_middle['gate'][::10,0], linestyle='-.', color='r')
+    ax2.plot(data_middle['times'][::10], data_middle['gate'][::10,1], linestyle='-.', color='b')
+    ax2.plot(data_middle['times'][::10], data_middle['evidence_node'][::10,0], color='r', linestyle="--")
+    ax2.plot(data_middle['times'][::10], data_middle['evidence_node'][::10,1], color='b', linestyle="--")
 
-    ax3.plot(data_bottom['times'], data_bottom['evidence'][:,0], color='r')
-    ax3.plot(data_bottom['times'], data_bottom['evidence'][:,1], color='b')
-    ax3.plot(data_bottom['times'], data_bottom['threshold'], color='k')
-    ax3.plot(data_bottom['times'], data_bottom['gate'][:,0], linestyle='-.', color='r')
-    ax3.plot(data_bottom['times'], data_bottom['gate'][:,1], linestyle='-.', color='b')
-    ax3.plot(data_bottom['times'], data_bottom['evidence_node'][:,0], color='r', linestyle="--")
-    ax3.plot(data_bottom['times'], data_bottom['evidence_node'][:,1], color='b', linestyle="--")
+    ax3.plot(data_bottom['times'][::10], data_bottom['evidence'][::10,0], color='r')
+    ax3.plot(data_bottom['times'][::10], data_bottom['evidence'][::10,1], color='b')
+    ax3.plot(data_bottom['times'][::10], data_bottom['threshold'][::10], color='k')
+    ax3.plot(data_bottom['times'][::10], data_bottom['gate'][::10,0], linestyle='-.', color='r')
+    ax3.plot(data_bottom['times'][::10], data_bottom['gate'][::10,1], linestyle='-.', color='b')
+    ax3.plot(data_bottom['times'][::10], data_bottom['evidence_node'][::10,0], color='r', linestyle="--")
+    ax3.plot(data_bottom['times'][::10], data_bottom['evidence_node'][::10,1], color='b', linestyle="--")
 
     ax1.legend(loc='upper center', bbox_to_anchor=(0.5, 1.3), ncol=3, fancybox=True, shadow=True)
     ax1.set(yticks=([0, 1, 2, 3]), ylim=((-0.25, 3)), ylabel=r"$\hat{\mathbf{x}}$")
     ax2.set(yticks=([0, 1, 2, 3]), ylim=((-0.25, 3)), ylabel=r"$\hat{\mathbf{x}}$")
-    ax3.set(xticks=(np.arange(1, 7)), yticks=([0, 1, 2, 3]), ylim=((-0.25, 3)), ylabel=r"$\hat{\mathbf{x}}$", xlabel='time (cues)')
-    plt.tight_layout()
+    ax3.set(xticks=(np.arange(0, 7)), yticks=([0, 1, 2, 3]), ylim=((-0.25, 3)), ylabel=r"$\hat{\mathbf{x}}$", xlabel='time (cues)')
+    # plt.tight_layout()
     plt.savefig("plots/three_timeseries.png")
+    plt.savefig("plots/three_timeseries.pdf")
+    plt.savefig("plots/three_timeseries.svg")
+    # tikzplotlib.clean_figure(target_resolution=600, scale_precision=1.0)
+    # tikzplotlib.save("plots/three_timeseries.tex")
     plt.close()
 
-# make_fig3()
+make_fig3()
 
-run_agent(n_trials=10, Tdecay=0.5, Tint=2.0, seed=0, p=0)
+# run_agent(n_trials=10, Tdecay=0.5, Tint=2.0, seed=0, p=0)
 
 # n_subjects = 30
 # rng = np.random.RandomState(seed=0)

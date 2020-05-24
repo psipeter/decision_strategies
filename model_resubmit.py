@@ -123,7 +123,7 @@ def get_correct(values, weights):
     evidence_B = np.dot(values[:,1], weights)
     return np.argmax([evidence_A, evidence_B])
 
-def run_agent(n_trials=48, thr=3.0, urg=0.3, seed=0, plot=True, p=0):
+def run_agent(n_trials=48, thr=3.0, urg=0.3, seed=0, plot=True):
     weights = np.array([0.706, 0.688, 0.667, 0.647, 0.625, 0.6]) # from noncompensatory experiment
     accuracies = np.zeros((n_trials, 1))
     RTs = np.zeros((n_trials, 1))
@@ -143,7 +143,7 @@ def run_agent(n_trials=48, thr=3.0, urg=0.3, seed=0, plot=True, p=0):
             make_plot(data, trial, RT, accuracy, choice, thr, urg)
 
     np.savez("plots/data_thr%.2f_urg%.2f.npz"%(thr, urg), urg=urg, seed=seed, thr=thr, RTs=RTs, accuracies=accuracies)
-    np.savez("data/%s"%p, urg=urg, seed=seed, thr=thr, RTs=RTs, accuracies=accuracies) 
+    np.savez("data/%s"%seed, urg=urg, seed=seed, thr=thr, RTs=RTs, accuracies=accuracies) 
 
 def make_plot(data, trial, RT, accuracy, choice, thr, urg):
     fig, ax = plt.subplots(1, 1, sharex=True)
@@ -167,10 +167,9 @@ def make_plot(data, trial, RT, accuracy, choice, thr, urg):
     plt.savefig("plots/thr%.2f_urg%.2f_trial%s.pdf"%(thr, urg, trial))
     plt.close()
 
-run_agent(n_trials=10, urg=0.5, thr=2.0, seed=1, p=0)
-# run_agent(n_trials=10, thr=3.0, urg=0.4, seed=0, p=0)
+# run_agent(n_trials=10, urg=0.5, thr=2.0, seed=1)
 
-# n_subjects = 30
-# rng = np.random.RandomState(seed=0)
-# for n in range(n_subjects):
-#     run_agent(urg=rng.uniform(0.3, 0.5), thr=rng.uniform(1.5, 3.0), seed=n, p=n)
+n_subjects = 3
+rng = np.random.RandomState(seed=0)
+for n in range(n_subjects):
+    run_agent(urg=rng.uniform(0.3, 0.5), thr=rng.uniform(1.5, 3.0), seed=n+1)

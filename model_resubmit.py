@@ -8,24 +8,16 @@ import nengolib
 import scipy
 sns.set(style="white", context="paper")
 
-def read_values(trial):
-    stim = pd.read_csv('input_stimuli.csv', sep=';')
-    trdata = list(stim[['c1','c2','c3','c4','c5','c6','c1.1','c2.1','c3.1','c4.1','c5.1','c6.1']].loc[trial])
-    A = trdata[:len(trdata)//2]
-    B = trdata[len(trdata)//2:]
-    return np.array([[A[n], B[n]] for n in range(len(A))])
-
-''' Model definition '''
-def run_model(values, weights, thr=3.0, urg=0.5, tau=0.1, seed=0):
+def run_model(values, weights, thr=3.0, urg=0.5, tau=0.1, n_neurons=1000, seed=0):
 
     value_process = nengo.processes.PresentInput(values, presentation_time=1.0)
     weight_process = nengo.processes.PresentInput(weights, presentation_time=1.0)
-    noise_process = nengo.processes.WhiteSignal(period=6, high=10, rms=5e-2, seed=seed)
-    urgency_process = lambda t: thr - t*urg - thr*(t>5.5)
+    noise_process = nengo.processes.WhiteSignal(period=6, high=10, rms=6e-2, seed=seed)
+    urgency_process = lambda t: thr - t*urg - thr*(t>5.8)
 
     mult = lambda x: [x[0]*x[2], x[1]*x[2]]  # multiply weights by values
     delta = lambda x: -np.abs(x[0]-x[1])  # negative of difference in accumulated evidence
-    inhib = -1e3*np.ones((2000, 1))
+    inhib = -1e3*np.ones((n_neurons, 1))
 
     model = nengo.Network(seed=seed)
     with model:
@@ -41,12 +33,12 @@ def run_model(values, weights, thr=3.0, urg=0.5, tau=0.1, seed=0):
         noise_inpt = nengo.Node(noise_process)
         
         # Ensembles
-        value = nengo.Ensemble(2000, 3, radius=3)  # represents values dim=[0,1] and weights dim=[2]
-        evidence = nengo.Ensemble(2000, 2, radius=4)  # 2D integrator accumulates weighted evidence
-        monitor = nengo.Ensemble(1000, 1, encoders=Choice([[1]]), intercepts=Choice([0])) # monitor uncertainty and urgency
-        gate = nengo.Ensemble(2000, 2, radius=4)  # relays information from evidence to decision
-        decision = nengo.networks.BasalGanglia(2, 1000)  # WTA action selection between A and B once threshold is reached
-        motor = nengo.networks.Thalamus(2, 1000, threshold=0.6)  # mutual inhibition between BG outputs for motor execution
+        value = nengo.Ensemble(n_neurons, 3, radius=3)  # represents values dim=[0,1] and weights dim=[2]
+        evidence = nengo.Ensemble(n_neurons, 2, radius=4)  # 2D integrator accumulates weighted evidence
+        monitor = nengo.Ensemble(n_neurons, 1, encoders=Choice([[1]]), intercepts=Choice([0])) # monitor uncertainty+urgency
+        gate = nengo.Ensemble(n_neurons, 2, radius=4)  # relays information from evidence to decision
+        decision = nengo.networks.BasalGanglia(2, n_neurons)  # WTA action selection between A and B once threshold is reached
+        motor = nengo.networks.Thalamus(2, n_neurons, threshold=0.6)  # mutual inhibition between BG outputs for motor execution
 
         # Connections
         nengo.Connection(value_inpt, value[0:2], synapse=None)  # sensory inputs
@@ -64,7 +56,7 @@ def run_model(values, weights, thr=3.0, urg=0.5, tau=0.1, seed=0):
         # Probes
         p_weight_inpt = nengo.Probe(weight_inpt, synapse=None)
         p_value_inpt = nengo.Probe(value_inpt, synapse=None)
-        p_value = nengo.Probe(value, synapse=0.1)
+        p_value = nengo.Probe(value)
         p_monitor = nengo.Probe(monitor)
         p_evidence = nengo.Probe(evidence)
         p_gate = nengo.Probe(gate)
@@ -93,6 +85,13 @@ def run_model(values, weights, thr=3.0, urg=0.5, tau=0.1, seed=0):
         motor=sim.data[p_motor][10:],
         ideal=sim.data[p_ideal][10:],
         )
+
+def read_values(trial):
+    stim = pd.read_csv('input_stimuli.csv', sep=';')
+    trdata = list(stim[['c1','c2','c3','c4','c5','c6','c1.1','c2.1','c3.1','c4.1','c5.1','c6.1']].loc[trial])
+    A = trdata[:len(trdata)//2]
+    B = trdata[len(trdata)//2:]
+    return np.array([[A[n], B[n]] for n in range(len(A))])
 
 def get_RT(data):
     RT_A = np.where(data[:,0] > 0.1)[0]
@@ -123,28 +122,6 @@ def get_correct(values, weights):
     evidence_B = np.dot(values[:,1], weights)
     return np.argmax([evidence_A, evidence_B])
 
-def run_agent(n_trials=48, thr=3.0, urg=0.3, seed=0, plot=True):
-    weights = np.array([0.706, 0.688, 0.667, 0.647, 0.625, 0.6]) # from noncompensatory experiment
-    accuracies = np.zeros((n_trials, 1))
-    RTs = np.zeros((n_trials, 1))
-    for trial in range(n_trials):
-        print('\ntrial: ', trial)
-        values = read_values(trial)
-        data = run_model(values, weights, thr, urg, seed)
-
-        RT = get_RT(data['motor'])
-        RTs[trial] = RT
-        choice = get_choice(data['motor'])
-        correct = get_correct(values, weights)
-        accuracy = choice==correct
-        accuracies[trial] = accuracy
-
-        if plot:
-            make_plot(data, trial, RT, accuracy, choice, thr, urg)
-
-    np.savez("plots/data_thr%.2f_urg%.2f.npz"%(thr, urg), urg=urg, seed=seed, thr=thr, RTs=RTs, accuracies=accuracies)
-    np.savez("data/%s"%seed, urg=urg, seed=seed, thr=thr, RTs=RTs, accuracies=accuracies) 
-
 def make_plot(data, trial, RT, accuracy, choice, thr, urg):
     fig, ax = plt.subplots(1, 1, sharex=True)
     # ax.plot(data['times'], data['value'][:,0], label="val A", color='r')
@@ -166,10 +143,34 @@ def make_plot(data, trial, RT, accuracy, choice, thr, urg):
     ax.legend(loc='upper left')
     plt.savefig("plots/thr%.2f_urg%.2f_trial%s.pdf"%(thr, urg, trial))
     plt.close()
+    
+def run_agent(n_trials=48, thr=3.0, urg=0.3, seed=0, plot=True):
+    weights = np.array([0.706, 0.688, 0.667, 0.647, 0.625, 0.6]) # from noncompensatory experiment
+    accuracies = np.zeros((n_trials, 1))
+    RTs = np.zeros((n_trials, 1))
+    for trial in range(n_trials):
+        print('agent %s, trial %s: '%(seed, trial))
+        values = read_values(trial)
+        data = run_model(values, weights, thr, urg, seed)
+        RT = get_RT(data['motor'])
+        RTs[trial] = RT
+        choice = get_choice(data['motor'])
+        correct = get_correct(values, weights)
+        accuracy = choice==correct
+        accuracies[trial] = accuracy
+        if plot:
+            make_plot(data, trial, RT, accuracy, choice, thr, urg)
+    np.savez("plots/data_thr%.2f_urg%.2f.npz"%(thr, urg), urg=urg, seed=seed, thr=thr, RTs=RTs, accuracies=accuracies)
+    np.savez("data/%s"%seed, urg=urg, seed=seed, thr=thr, RTs=RTs, accuracies=accuracies) 
 
-# run_agent(n_trials=10, urg=0.5, thr=2.0, seed=1)
 
-n_subjects = 3
+# run_agent(n_trials=10, urg=0.3, thr=3.0, seed=1)
+
+n_subjects = 14
 rng = np.random.RandomState(seed=0)
+urgs = np.linspace(0.3, 0.5, n_subjects)
+thrs = np.linspace(1.5, 3.0, n_subjects)
+rng.shuffle(urgs)
+rng.shuffle(thrs)
 for n in range(n_subjects):
-    run_agent(urg=rng.uniform(0.3, 0.5), thr=rng.uniform(1.5, 3.0), seed=n+1)
+    run_agent(urg=urgs[n], thr=thrs[n], seed=n+1)

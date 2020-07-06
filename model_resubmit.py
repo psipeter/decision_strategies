@@ -36,7 +36,7 @@ def run_model(values, weights, thr=3.0, urg=0.5, tau=0.1, n_neurons=1000, seed=0
         # Ensembles
         value = nengo.Ensemble(n_neurons, 3, radius=3)  # represents values dim=[0,1] and weights dim=[2]
         evidence = nengo.Ensemble(n_neurons, 2, radius=4)  # 2D integrator accumulates weighted evidence
-        monitor = nengo.Ensemble(n_neurons, 1, encoders=Choice([[1]]), intercepts=Choice([0])) # monitor uncertainty+urgency
+        hold = nengo.Ensemble(n_neurons, 1, encoders=Choice([[1]]), intercepts=Choice([0])) # monitor uncertainty+urgency, hold signal through gate
         gate = nengo.Ensemble(n_neurons, 2, radius=4)  # relays information from evidence to decision
         decision = nengo.networks.BasalGanglia(2, n_neurons)  # WTA action selection between A and B once threshold is reached
         motor = nengo.networks.Thalamus(2, n_neurons, threshold=0.6)  # mutual inhibition between BG outputs for motor execution
@@ -45,20 +45,20 @@ def run_model(values, weights, thr=3.0, urg=0.5, tau=0.1, n_neurons=1000, seed=0
         nengo.Connection(value_inpt, value[0:2], synapse=None)  # sensory inputs
         nengo.Connection(weight_inpt, value[2], synapse=None)  # memory of weights
         nengo.Connection(noise_inpt, value[2], synapse=None)  # noisy recall of weights
-        nengo.Connection(urgency_inpt, monitor, synapse=None)  # ramping urgency signal
+        nengo.Connection(urgency_inpt, hold, synapse=None)  # ramping urgency signal
         nengo.Connection(value, evidence, function=mult, synapse=tau, transform=tau)  # multiply values and weights, feed to integrator
         nengo.Connection(evidence, evidence, synapse=tau)  # recurrent connection for evidence buffer
         nengo.Connection(evidence, gate)
         nengo.Connection(gate, decision.input, transform=0.4)
-        nengo.Connection(evidence, monitor, function=delta)  # calculate certainty
-        nengo.Connection(monitor, gate.neurons, transform=inhib)  # inhibitory control of gate
+        nengo.Connection(evidence, hold, function=delta)  # calculate certainty
+        nengo.Connection(hold, gate.neurons, transform=inhib)  # inhibitory control of gate
         nengo.Connection(decision.output, motor.input)  # final action selection
 
         # Probes
         p_weight_inpt = nengo.Probe(weight_inpt, synapse=None)
         p_value_inpt = nengo.Probe(value_inpt, synapse=None)
         p_value = nengo.Probe(value)
-        p_monitor = nengo.Probe(monitor)
+        p_hold = nengo.Probe(hold)
         p_evidence = nengo.Probe(evidence)
         p_gate = nengo.Probe(gate)
         p_decision = nengo.Probe(decision.output)
@@ -79,7 +79,7 @@ def run_model(values, weights, thr=3.0, urg=0.5, tau=0.1, n_neurons=1000, seed=0
     return dict(
         times=sim.trange()[::10][10:],
         value=sim.data[p_value][10:],
-        monitor=sim.data[p_monitor][10:],
+        hold=sim.data[p_hold][10:],
         evidence=sim.data[p_evidence][10:],
         gate=sim.data[p_gate][10:],
         decision=sim.data[p_decision][10:],
@@ -137,7 +137,7 @@ def make_plot(data, trial, RT, accuracy, choice, thr, urg):
     # ax.plot(data['times'], data['decision'][:,1], label="dec B", linestyle=':', color='b')
     ax.plot(data['times'], data['motor'][:,0], label="choose A", alpha=0.5, linestyle=":", color='r')
     ax.plot(data['times'], data['motor'][:,1], label="choose B", alpha=0.5, linestyle=":", color='b')
-    ax.plot(data['times'], data['monitor'], label='hold', color='k')
+    ax.plot(data['times'], data['hold'], label='hold', color='k')
     ax.set(xlabel='time (s)', ylabel=r"$\hat{\mathbf{x}}$", ylim=((-0.25, 3)),
         xticks=[0,1,2,3,4,5,6], yticks=[0,1,2,3],
         title="thr=%.2f, urg=%.2f, trial=%s \n choice=%s (%s), RT=%.2fs"
@@ -166,9 +166,9 @@ def run_agent(n_trials=48, thr=3.0, urg=0.3, seed=0, plot=True):
     np.savez("data/%s"%seed, urg=urg, seed=seed, thr=thr, RTs=RTs, accuracies=accuracies) 
 
 # Figures 3, 4, 5
-run_agent(n_trials=10, urg=0.4, thr=2.5, seed=2)
-run_agent(n_trials=10, urg=0.3, thr=3.0, seed=3)
-run_agent(n_trials=10, urg=0.5, thr=2.0, seed=4)
+# run_agent(n_trials=10, urg=0.4, thr=2.5, seed=2)
+run_agent(n_trials=1, urg=0.3, thr=3.0, seed=3)
+# run_agent(n_trials=10, urg=0.5, thr=2.0, seed=4)
 
 # Figure 6
 # run_agent(urg=0.5, thr=1.8, seed=107)

@@ -6,7 +6,8 @@ import seaborn as sns
 import pandas as pd
 import nengolib
 import scipy
-sns.set(style="white", context="paper")
+# sns.set(style="white", context="paper")
+sns.set(style="white", context="poster")
 
 def run_model(values, weights, thr=3.0, urg=0.5, tau=0.1, n_neurons=1000, seed=0):
 
@@ -123,24 +124,25 @@ def get_correct(values, weights):
     return np.argmax([evidence_A, evidence_B])
 
 def make_plot(data, trial, RT, accuracy, choice, thr, urg):
-    fig, ax = plt.subplots(1, 1, sharex=True)
+    fig, ax = plt.subplots(1, 1, sharex=True, figsize=((12, 6)))
     # ax.plot(data['times'], data['value'][:,0], label="val A", color='r')
     # ax.plot(data['times'], data['value'][:,1], label="val B", color='b')
-    ax.plot(data['times'], data['evidence'][:,0], label="A", color='r')
-    ax.plot(data['times'], data['evidence'][:,1], label="B", color='b')
-    ax.plot(data['times'], data['monitor'], label='uncertainty', color='k')
+    ax.plot(data['times'], data['evidence'][:,0], label="evidence A", color='r')
+    ax.plot(data['times'], data['evidence'][:,1], label="evidence B", color='b')
+    ax.plot(data['times'], data['ideal'][:,0], label="ideal A", color='r', linestyle="--")
+    ax.plot(data['times'], data['ideal'][:,1], label="ideal A", color='b', linestyle="--")
     # ax.plot(data['times'], data['gate'][:,0], label="gate A", color='r')
     # ax.plot(data['times'], data['gate'][:,1], label="gate B", color='b')
     # ax.plot(data['times'], data['decision'][:,0], label="dec A", linestyle=':', color='r')
     # ax.plot(data['times'], data['decision'][:,1], label="dec B", linestyle=':', color='b')
-    ax.plot(data['times'], data['motor'][:,0], label="A", alpha=0.5, color='r')
-    ax.plot(data['times'], data['motor'][:,1], label="B", alpha=0.5, color='b')
-    ax.plot(data['times'], data['ideal'][:,0], color='r', linestyle="--")
-    ax.plot(data['times'], data['ideal'][:,1], color='b', linestyle="--")
+    ax.plot(data['times'], data['motor'][:,0], label="choose A", alpha=0.5, linestyle=":", color='r')
+    ax.plot(data['times'], data['motor'][:,1], label="choose B", alpha=0.5, linestyle=":", color='b')
+    ax.plot(data['times'], data['monitor'], label='hold', color='k')
     ax.set(xlabel='time (s)', ylabel=r"$\hat{\mathbf{x}}$", ylim=((-0.25, 3)),
+        xticks=[0,1,2,3,4,5,6], yticks=[0,1,2,3],
         title="thr=%.2f, urg=%.2f, trial=%s \n choice=%s (%s), RT=%.2fs"
         %(thr, urg, trial, 'A' if choice==0 else 'B', 'correct' if accuracy else 'incorrect', RT))
-    ax.legend(loc='upper left')
+    ax.legend(loc='upper center', ncol=4, fancybox=True, shadow=True)
     plt.savefig("plots/thr%.2f_urg%.2f_trial%s.pdf"%(thr, urg, trial))
     plt.close()
     
@@ -163,14 +165,21 @@ def run_agent(n_trials=48, thr=3.0, urg=0.3, seed=0, plot=True):
     np.savez("plots/data_thr%.2f_urg%.2f.npz"%(thr, urg), urg=urg, seed=seed, thr=thr, RTs=RTs, accuracies=accuracies)
     np.savez("data/%s"%seed, urg=urg, seed=seed, thr=thr, RTs=RTs, accuracies=accuracies) 
 
+# Figures 3, 4, 5
+run_agent(n_trials=10, urg=0.4, thr=2.5, seed=2)
+run_agent(n_trials=10, urg=0.3, thr=3.0, seed=3)
+run_agent(n_trials=10, urg=0.5, thr=2.0, seed=4)
 
-# run_agent(n_trials=10, urg=0.3, thr=3.0, seed=1)
+# Figure 6
+# run_agent(urg=0.5, thr=1.8, seed=107)
+# run_agent(urg=0.29, thr=2.9, seed=110)
 
-n_subjects = 14
-rng = np.random.RandomState(seed=0)
-urgs = np.linspace(0.3, 0.5, n_subjects)
-thrs = np.linspace(1.5, 3.0, n_subjects)
-rng.shuffle(urgs)
-rng.shuffle(thrs)
-for n in range(n_subjects):
-    run_agent(urg=urgs[n], thr=thrs[n], seed=n+1)
+# Figure 7
+# n_subjects = 14
+# rng = np.random.RandomState(seed=1)
+# urgs = np.linspace(0.3, 0.5, n_subjects)
+# thrs = np.linspace(2.0, 3.0, n_subjects)
+# rng.shuffle(urgs)
+# rng.shuffle(thrs)
+# for n in range(n_subjects):
+#     run_agent(urg=urgs[n], thr=thrs[n], seed=n+15)

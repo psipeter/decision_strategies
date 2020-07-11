@@ -2,8 +2,8 @@
 
 pip install numpy scipy nengo matplotlib seaborn pandas nengolib jupyter
 
-python model.py
+python model_resubmit.py
 
-nengo gui.py
+nengo gui_resubmit.py
 
 jupyter notebook plotter.ipynb
